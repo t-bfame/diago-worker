@@ -7,8 +7,7 @@ import (
 	"os"
 	"time"
 
-	cheese "github.com/t-bfame/diago-worker/cheese"
-	pb "github.com/t-bfame/diago-worker/internal"
+	pb "github.com/t-bfame/diago-worker/pkg"
 	"google.golang.org/grpc"
 )
 
@@ -18,7 +17,7 @@ const (
 )
 
 func main() {
-	fmt.Printf("cheesing %v\n", cheese.Cheesing())
+	fmt.Println("hello!")
 	/*
 		rate := vegeta.Rate{Freq: 5, Per: time.Second}
 		duration := 3 * time.Second
