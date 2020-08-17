@@ -2,64 +2,48 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"os"
-	"time"
 
-	pb "github.com/t-bfame/diago-worker/pkg"
+	worker "github.com/t-bfame/diago-worker/internal"
 	"google.golang.org/grpc"
 )
 
 const (
-	address     = "localhost:50051"
-	defaultName = "world"
+	// TODO: use address of Diago leader
+	address = "localhost:5000"
 )
 
+func register(stream worker.Worker_CoordinateClient) {
+
+	msgRegister := &worker.Message{Payload: &worker.Message_Register{}}
+	if err := stream.Send(msgRegister); err != nil {
+		log.Fatalf("Failed to send a register message: %v", err)
+	}
+}
+
 func main() {
-	fmt.Println("hello!")
-	/*
-		rate := vegeta.Rate{Freq: 5, Per: time.Second}
-		duration := 3 * time.Second
-		targeter := vegeta.NewStaticTargeter(vegeta.Target{
-			Method: "GET",
-			URL:    "http://localhost:3000",
-		})
-		attacker := vegeta.NewAttacker()
-
-		var metrics vegeta.Metrics
-		for res := range attacker.Attack(targeter, rate, duration, "Test run") {
-			metrics.Add(res)
-		}
-		metrics.Close()
-
-		fmt.Printf("99th percentile: %s\n", metrics.Latencies.P99)
-	*/
+	log.Println("Starting worker program")
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
-		log.Fatalf("did not connect: %v", err)
+		log.Fatalf("Did not connect to server: %v", err)
 	}
 	defer conn.Close()
-	c := pb.NewGreeterClient(conn)
 
-	// Contact the server and print out its response.
-	name := defaultName
-	if len(os.Args) > 1 {
-		name = os.Args[1]
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	r, err := c.SayHello(ctx, &pb.HelloRequest{Name: name})
-	if err != nil {
-		log.Fatalf("could not greet: %v", err)
-	}
-	log.Printf("Greeting: %s", r.GetMessage())
+	client := worker.NewWorkerClient(conn)
 
-	r, err = c.SayHelloAgain(ctx, &pb.HelloRequest{Name: name})
+	// TODO: if a context with a timeout is created, the program won't work
+	ctx := context.Background()
+
+	// Contact server to establish grpc stream
+	stream, err := client.Coordinate(ctx)
 	if err != nil {
-		log.Fatalf("could not greet: %v", err)
+		log.Fatalf("Failed to setup gRPC stream: %v", err)
 	}
-	log.Printf("Greeting: %s", r.GetMessage())
+
+	register(stream)
+	worker.Loop(stream)
+
+	stream.CloseSend()
 }
