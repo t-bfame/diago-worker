@@ -3,19 +3,21 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 
 	worker "github.com/t-bfame/diago-worker/internal"
 	"google.golang.org/grpc"
 )
 
-const (
-	// TODO: use address of Diago leader
-	address = "localhost:5000"
-)
-
 func register(stream worker.Worker_CoordinateClient) {
 
-	msgRegister := &worker.Message{Payload: &worker.Message_Register{}}
+	msgRegister := &worker.Message{Payload: &worker.Message_Register{
+		Register: &worker.Register{
+			Group:     os.Getenv("DIAGO_WORKER_GROUP"),
+			Instance:  os.Getenv("DIAGO_WORKER_GROUP_INSTANCE"),
+			Frequency: 100,
+		},
+	}}
 	if err := stream.Send(msgRegister); err != nil {
 		log.Fatalf("Failed to send a register message: %v", err)
 	}
@@ -23,6 +25,8 @@ func register(stream worker.Worker_CoordinateClient) {
 
 func main() {
 	log.Println("Starting worker program")
+
+	address := os.Getenv("DIAGO_LEADER_HOST") + ":" + os.Getenv("DIAGO_LEADER_PORT")
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())

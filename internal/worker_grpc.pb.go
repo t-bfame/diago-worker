@@ -29,7 +29,7 @@ func NewWorkerClient(cc grpc.ClientConnInterface) WorkerClient {
 }
 
 func (c *workerClient) Coordinate(ctx context.Context, opts ...grpc.CallOption) (Worker_CoordinateClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_Worker_serviceDesc.Streams[0], "/internal.Worker/Coordinate", opts...)
+	stream, err := c.cc.NewStream(ctx, &_Worker_serviceDesc.Streams[0], "/Worker/Coordinate", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func (x *workerCoordinateServer) Recv() (*Message, error) {
 }
 
 var _Worker_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "internal.Worker",
+	ServiceName: "Worker",
 	HandlerType: (*WorkerServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
