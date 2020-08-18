@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sync"
 	"time"
 
 	vegeta "github.com/tsenart/vegeta/v12/lib"
@@ -26,7 +27,7 @@ func metricsFromVegetaResult(jobID uint64, res *vegeta.Result) *Metrics {
 	return metrics
 }
 
-func handleMessageStart(stream Worker_CoordinateClient, msgRegister *Start) {
+func handleMessageStart(stream Worker_CoordinateClient, msgRegister *Start, mutex *sync.Mutex) {
 	jobID := msgRegister.Jobid
 
 	fmt.Printf("Starting vegeta attack for job: %v\n", jobID)
@@ -43,21 +44,24 @@ func handleMessageStart(stream Worker_CoordinateClient, msgRegister *Start) {
 	})
 	attacker := vegeta.NewAttacker()
 
-	// TODO: potentially consider batching results to reduce network usage
-	// TODO: protect all sends with mutex
+	// TODO: potentially consider batching results to reduce network usage as this is definitely a bottleneck
 	for res := range attacker.Attack(targeter, rate, duration, "Test run") {
+		mutex.Lock()
 		stream.Send(&Message{
 			Payload: &Message_Metrics{
 				Metrics: metricsFromVegetaResult(jobID, res),
 			},
 		})
+		mutex.Unlock()
 		fmt.Printf("latency: %v\n", res.Latency)
 	}
+	mutex.Lock()
 	stream.Send(&Message{
 		Payload: &Message_Finish{
 			Finish: &Finish{JobId: jobID},
 		},
 	})
+	mutex.Unlock()
 
 	fmt.Printf("Worker finished workload for job %v\n", jobID)
 }
@@ -68,6 +72,7 @@ func handleMessageStop() {
 
 // Loop is the main event loop
 func Loop(stream Worker_CoordinateClient) {
+	mutex := &sync.Mutex{}
 	for {
 		msg, err := stream.Recv()
 		if err == io.EOF {
@@ -80,7 +85,7 @@ func Loop(stream Worker_CoordinateClient) {
 
 		switch x := msg.Payload.(type) {
 		case *Message_Start:
-			go handleMessageStart(stream, x.Start)
+			go handleMessageStart(stream, x.Start, mutex)
 		case *Message_Stop:
 			handleMessageStop()
 		case nil:
