@@ -36,7 +36,7 @@ func (s *workerServer) Coordinate(stream worker.Worker_CoordinateServer) error {
 			msgStart := &worker.Message{
 				Payload: &worker.Message_Start{
 					Start: &worker.Start{
-						Jobid:     0,
+						JobId:     "0",
 						Frequency: 1,
 						Duration:  3,
 						Request:   httpRequest,

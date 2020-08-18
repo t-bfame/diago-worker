@@ -26,7 +26,8 @@ func register(stream worker.Worker_CoordinateClient) {
 func main() {
 	log.Println("Starting worker program")
 
-	address := os.Getenv("DIAGO_LEADER_HOST") + ":" + os.Getenv("DIAGO_LEADER_PORT")
+	//address := os.Getenv("DIAGO_LEADER_HOST") + ":" + os.Getenv("DIAGO_LEADER_PORT")
+	address := "localhost:5000"
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
