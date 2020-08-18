@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
+	"sync"
+	"time"
 
 	worker "github.com/t-bfame/diago-worker/internal"
 	"google.golang.org/grpc"
@@ -38,8 +41,8 @@ func main() {
 
 	client := worker.NewWorkerClient(conn)
 
-	// TODO: if a context with a timeout is created, the program won't work
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Contact server to establish grpc stream
 	stream, err := client.Coordinate(ctx)
@@ -47,8 +50,34 @@ func main() {
 		log.Fatalf("Failed to setup gRPC stream: %v", err)
 	}
 
-	register(stream)
-	worker.Loop(stream)
+	wg := &sync.WaitGroup{}
+	lastProcessedTime := time.Now()
+	timeMutex := &sync.Mutex{}
+	streamMutex := &sync.Mutex{}
+	gracePeriod := 5.0
 
-	stream.CloseSend()
+	// TODO: do i have to do graceful shutdown or can i just kill the program?
+	go func() {
+		for {
+			wg.Wait()
+
+			timeMutex.Lock()
+			diff := time.Now().Sub(lastProcessedTime)
+			timeMutex.Unlock()
+			if diff.Seconds() > gracePeriod {
+				fmt.Printf("It's been more than %v seconds\n", gracePeriod)
+				streamMutex.Lock()
+				// TODO: this is super flaky, sometimes it doesn't trigger an io.EOF on the server side
+				// maybe the server actually needs to be currently blocked on Recv() in order to get the io.eof?
+				stream.CloseSend()
+				streamMutex.Unlock()
+				cancel()
+				return
+			}
+			time.Sleep(time.Second)
+		}
+	}()
+
+	register(stream)
+	worker.Loop(streamMutex, stream, wg, timeMutex, &lastProcessedTime)
 }

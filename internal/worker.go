@@ -71,12 +71,10 @@ func handleMessageStop() {
 }
 
 // Loop is the main event loop
-func Loop(stream Worker_CoordinateClient) {
-	mutex := &sync.Mutex{}
+func Loop(streamMutex *sync.Mutex, stream Worker_CoordinateClient, wg *sync.WaitGroup, timeMutex *sync.Mutex, lastProcessedTime *time.Time) {
 	for {
 		msg, err := stream.Recv()
 		if err == io.EOF {
-			stream.CloseSend()
 			return
 		}
 		if err != nil {
@@ -85,7 +83,14 @@ func Loop(stream Worker_CoordinateClient) {
 
 		switch x := msg.Payload.(type) {
 		case *Message_Start:
-			go handleMessageStart(stream, x.Start, mutex)
+			go func() {
+				wg.Add(1)
+				handleMessageStart(stream, x.Start, streamMutex)
+				timeMutex.Lock()
+				*lastProcessedTime = time.Now()
+				timeMutex.Unlock()
+				wg.Done()
+			}()
 		case *Message_Stop:
 			handleMessageStop()
 		case nil:

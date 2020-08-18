@@ -50,7 +50,7 @@ func (s *workerServer) Coordinate(stream worker.Worker_CoordinateServer) error {
 		case *worker.Message_Metrics:
 			fmt.Println("Received message of type: Metrics")
 			metrics := x.Metrics
-			fmt.Printf("Latency is: %v\n", metrics.GetLatency())
+			fmt.Printf("Job ID is: %v, Latency is: %v\n", metrics.GetJobId(), metrics.GetLatency())
 		case *worker.Message_Finish:
 			fmt.Println("A worker has finished processing")
 		case nil:
