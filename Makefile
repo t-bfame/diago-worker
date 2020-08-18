@@ -18,8 +18,13 @@ proto:
 		$$file; \
 	done
 
+.PHONY: build
 build:
-	@ go install .
+	GOOS=linux go build cmd/main.go
+	docker build -f build/Dockerfile -t diago-worker .
 
 run:
 	@ go run main
+
+local:
+	go build cmd/main.go

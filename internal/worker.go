@@ -15,7 +15,7 @@ import (
 // jobids (of ongoing workloads) and channels that can be used to communicate with the
 // goroutines (to force stop for example)
 
-func metricsFromVegetaResult(jobID uint64, res *vegeta.Result) *Metrics {
+func metricsFromVegetaResult(jobID string, res *vegeta.Result) *Metrics {
 	metrics := &Metrics{
 		JobId:    jobID,
 		Code:     uint32(res.Code),
@@ -28,7 +28,7 @@ func metricsFromVegetaResult(jobID uint64, res *vegeta.Result) *Metrics {
 }
 
 func handleMessageStart(stream Worker_CoordinateClient, msgRegister *Start, mutex *sync.Mutex) {
-	jobID := msgRegister.Jobid
+	jobID := msgRegister.JobId
 
 	fmt.Printf("Starting vegeta attack for job: %v\n", jobID)
 
