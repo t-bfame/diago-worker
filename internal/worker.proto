@@ -2,8 +2,6 @@ syntax = "proto3";
 
 option go_package = "github.com/t-bfame/diago-worker/internal";
 
-package internal;
-
 import "google/protobuf/timestamp.proto";
 
 service Worker {
