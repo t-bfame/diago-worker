@@ -10,12 +10,20 @@ import (
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
-// TODO: will have to abstract out all the functions into a class
-// the class will need to store some internal state, such as a mapping between
-// jobids (of ongoing workloads) and channels that can be used to communicate with the
-// goroutines (to force stop for example)
+// Worker that manages ongoing attacks
+type Worker struct {
+	attacks map[string]chan struct{}
+}
 
-func metricsFromVegetaResult(jobID string, res *vegeta.Result) *Metrics {
+// NewWorker instantiates and returns a Worker
+func NewWorker() *Worker {
+	w := &Worker{
+		attacks: make(map[string]chan struct{}),
+	}
+	return w
+}
+
+func (w *Worker) metricsFromVegetaResult(jobID string, res *vegeta.Result) *Metrics {
 	metrics := &Metrics{
 		JobId:    jobID,
 		Code:     uint32(res.Code),
@@ -27,7 +35,7 @@ func metricsFromVegetaResult(jobID string, res *vegeta.Result) *Metrics {
 	return metrics
 }
 
-func handleMessageStart(stream Worker_CoordinateClient, msgRegister *Start, mutex *sync.Mutex) {
+func (w *Worker) handleMessageStart(stream Worker_CoordinateClient, msgRegister *Start, mutex *sync.Mutex) {
 	jobID := msgRegister.JobId
 
 	fmt.Printf("Starting vegeta attack for job: %v\n", jobID)
@@ -45,15 +53,24 @@ func handleMessageStart(stream Worker_CoordinateClient, msgRegister *Start, mute
 	attacker := vegeta.NewAttacker()
 
 	// TODO: potentially consider batching results to reduce network usage as this is definitely a bottleneck
+Loop:
 	for res := range attacker.Attack(targeter, rate, duration, "Test run") {
-		mutex.Lock()
-		stream.Send(&Message{
-			Payload: &Message_Metrics{
-				Metrics: metricsFromVegetaResult(jobID, res),
-			},
-		})
-		mutex.Unlock()
-		fmt.Printf("latency: %v\n", res.Latency)
+		select {
+		case <-w.attacks[jobID]:
+			fmt.Printf("Prematurely ending job with id %v\n", jobID)
+			close(w.attacks[jobID])
+			delete(w.attacks, jobID)
+			break Loop
+		default:
+			mutex.Lock()
+			stream.Send(&Message{
+				Payload: &Message_Metrics{
+					Metrics: w.metricsFromVegetaResult(jobID, res),
+				},
+			})
+			mutex.Unlock()
+			fmt.Printf("latency: %v\n", res.Latency)
+		}
 	}
 	mutex.Lock()
 	stream.Send(&Message{
@@ -66,12 +83,18 @@ func handleMessageStart(stream Worker_CoordinateClient, msgRegister *Start, mute
 	fmt.Printf("Worker finished workload for job %v\n", jobID)
 }
 
-func handleMessageStop() {
-	// TODO: send stop message to goroutine via channel
+func (w *Worker) handleMessageStop(msgStop *Stop) {
+	fmt.Printf("Attempting to stop job with id %v\n", msgStop.GetJobId())
+	channel, ok := w.attacks[msgStop.GetJobId()]
+	if !ok {
+		log.Printf("This is a noop, as job %v is not currently executing", msgStop.GetJobId())
+		return
+	}
+	channel <- struct{}{}
 }
 
 // Loop is the main event loop
-func Loop(streamMutex *sync.Mutex, stream Worker_CoordinateClient, wg *sync.WaitGroup, timeMutex *sync.Mutex, lastProcessedTime *time.Time) {
+func (w *Worker) Loop(streamMutex *sync.Mutex, stream Worker_CoordinateClient, wg *sync.WaitGroup, timeMutex *sync.Mutex, lastProcessedTime *time.Time) {
 	for {
 		msg, err := stream.Recv()
 		if err == io.EOF {
@@ -83,17 +106,17 @@ func Loop(streamMutex *sync.Mutex, stream Worker_CoordinateClient, wg *sync.Wait
 
 		switch x := msg.Payload.(type) {
 		case *Message_Start:
+			wg.Add(1)
+			w.attacks[x.Start.GetJobId()] = make(chan struct{}, 1)
 			go func() {
-				wg.Add(1)
-				handleMessageStart(stream, x.Start, streamMutex)
+				w.handleMessageStart(stream, x.Start, streamMutex)
 				timeMutex.Lock()
 				*lastProcessedTime = time.Now()
 				timeMutex.Unlock()
 				wg.Done()
 			}()
 		case *Message_Stop:
-			handleMessageStop()
-		case nil:
+			w.handleMessageStop(x.Stop)
 		default:
 		}
 	}

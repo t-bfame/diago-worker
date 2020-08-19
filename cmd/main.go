@@ -79,5 +79,6 @@ func main() {
 	}()
 
 	register(stream)
-	worker.Loop(streamMutex, stream, wg, timeMutex, &lastProcessedTime)
+	w := worker.NewWorker()
+	w.Loop(streamMutex, stream, wg, timeMutex, &lastProcessedTime)
 }

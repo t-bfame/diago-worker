@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"time"
 
 	worker "github.com/t-bfame/diago-worker/internal"
 	"google.golang.org/grpc"
@@ -38,7 +39,7 @@ func (s *workerServer) Coordinate(stream worker.Worker_CoordinateServer) error {
 					Start: &worker.Start{
 						JobId:     "0",
 						Frequency: 1,
-						Duration:  3,
+						Duration:  10,
 						Request:   httpRequest,
 					},
 				},
@@ -47,6 +48,20 @@ func (s *workerServer) Coordinate(stream worker.Worker_CoordinateServer) error {
 				fmt.Println("Error sending start message!")
 				return err
 			}
+
+			go func() {
+				time.Sleep(3 * time.Second)
+				msgStop := &worker.Message{
+					Payload: &worker.Message_Stop{
+						Stop: &worker.Stop{
+							JobId: "0",
+						},
+					},
+				}
+				if err := stream.Send(msgStop); err != nil {
+					fmt.Println("Error sending stop message!")
+				}
+			}()
 		case *worker.Message_Metrics:
 			fmt.Println("Received message of type: Metrics")
 			metrics := x.Metrics
