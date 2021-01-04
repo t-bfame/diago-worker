@@ -54,7 +54,7 @@ message Metrics {
     uint64 bytes_out = 4;
 
     // Nanoseconds
-    uint64 latency = 5;
+    int64 latency = 5;
 
     string error = 6;
 

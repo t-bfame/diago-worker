@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	pytypes "github.com/golang/protobuf/ptypes"
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
@@ -24,13 +25,18 @@ func NewWorker() *Worker {
 }
 
 func (w *Worker) metricsFromVegetaResult(jobID string, res *vegeta.Result) *Metrics {
+	timestampProto, err := pytypes.TimestampProto(res.Timestamp)
+	if err != nil {
+		log.Fatal(err)
+	}
 	metrics := &Metrics{
-		JobId:    jobID,
-		Code:     uint32(res.Code),
-		BytesIn:  res.BytesIn,
-		BytesOut: res.BytesOut,
-		Latency:  uint64(res.Latency),
-		Error:    res.Error,
+		JobId:     jobID,
+		Code:      uint32(res.Code),
+		BytesIn:   res.BytesIn,
+		BytesOut:  res.BytesOut,
+		Latency:   int64(res.Latency),
+		Error:     res.Error,
+		Timestamp: timestampProto,
 	}
 	return metrics
 }
