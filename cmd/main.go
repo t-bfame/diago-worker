@@ -10,13 +10,14 @@ import (
 	"time"
 
 	worker "github.com/t-bfame/diago-worker/internal"
+	pb "github.com/t-bfame/diago-worker/proto-gen/worker"
 	"google.golang.org/grpc"
 )
 
-func register(stream worker.Worker_CoordinateClient) {
+func register(stream pb.Worker_CoordinateClient) {
 
-	msgRegister := &worker.Message{Payload: &worker.Message_Register{
-		Register: &worker.Register{
+	msgRegister := &pb.Message{Payload: &pb.Message_Register{
+		Register: &pb.Register{
 			Group:    os.Getenv("DIAGO_WORKER_GROUP"),
 			Instance: os.Getenv("DIAGO_WORKER_GROUP_INSTANCE"),
 		},
@@ -38,7 +39,7 @@ func main() {
 	}
 	defer conn.Close()
 
-	client := worker.NewWorkerClient(conn)
+	client := pb.NewWorkerClient(conn)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

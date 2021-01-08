@@ -8,6 +8,7 @@ import (
 	"time"
 
 	pytypes "github.com/golang/protobuf/ptypes"
+	pb "github.com/t-bfame/diago-worker/proto-gen/worker"
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
@@ -24,12 +25,12 @@ func NewWorker() *Worker {
 	return w
 }
 
-func (w *Worker) metricsFromVegetaResult(jobID string, res *vegeta.Result) *Metrics {
+func (w *Worker) metricsFromVegetaResult(jobID string, res *vegeta.Result) *pb.Metrics {
 	timestampProto, err := pytypes.TimestampProto(res.Timestamp)
 	if err != nil {
 		log.Fatal(err)
 	}
-	metrics := &Metrics{
+	metrics := &pb.Metrics{
 		JobId:     jobID,
 		Code:      uint32(res.Code),
 		BytesIn:   res.BytesIn,
@@ -41,7 +42,7 @@ func (w *Worker) metricsFromVegetaResult(jobID string, res *vegeta.Result) *Metr
 	return metrics
 }
 
-func (w *Worker) handleMessageStart(stream Worker_CoordinateClient, msgRegister *Start, mutex *sync.Mutex) {
+func (w *Worker) handleMessageStart(stream pb.Worker_CoordinateClient, msgRegister *pb.Start, mutex *sync.Mutex) {
 	jobID := msgRegister.JobId
 
 	fmt.Printf("Starting vegeta attack for job: %v\n", jobID)
@@ -69,8 +70,8 @@ Loop:
 			break Loop
 		default:
 			mutex.Lock()
-			stream.Send(&Message{
-				Payload: &Message_Metrics{
+			stream.Send(&pb.Message{
+				Payload: &pb.Message_Metrics{
 					Metrics: w.metricsFromVegetaResult(jobID, res),
 				},
 			})
@@ -79,9 +80,9 @@ Loop:
 		}
 	}
 	mutex.Lock()
-	stream.Send(&Message{
-		Payload: &Message_Finish{
-			Finish: &Finish{JobId: jobID},
+	stream.Send(&pb.Message{
+		Payload: &pb.Message_Finish{
+			Finish: &pb.Finish{JobId: jobID},
 		},
 	})
 	mutex.Unlock()
@@ -89,7 +90,7 @@ Loop:
 	fmt.Printf("Worker finished workload for job %v\n", jobID)
 }
 
-func (w *Worker) handleMessageStop(msgStop *Stop) {
+func (w *Worker) handleMessageStop(msgStop *pb.Stop) {
 	fmt.Printf("Attempting to stop job with id %v\n", msgStop.GetJobId())
 	channel, ok := w.attacks[msgStop.GetJobId()]
 	if !ok {
@@ -100,7 +101,7 @@ func (w *Worker) handleMessageStop(msgStop *Stop) {
 }
 
 // Loop is the main event loop
-func (w *Worker) Loop(streamMutex *sync.Mutex, stream Worker_CoordinateClient, wg *sync.WaitGroup, timeMutex *sync.Mutex, lastProcessedTime *time.Time) {
+func (w *Worker) Loop(streamMutex *sync.Mutex, stream pb.Worker_CoordinateClient, wg *sync.WaitGroup, timeMutex *sync.Mutex, lastProcessedTime *time.Time) {
 	for {
 		msg, err := stream.Recv()
 		if err == io.EOF {
@@ -111,7 +112,7 @@ func (w *Worker) Loop(streamMutex *sync.Mutex, stream Worker_CoordinateClient, w
 		}
 
 		switch x := msg.Payload.(type) {
-		case *Message_Start:
+		case *pb.Message_Start:
 			wg.Add(1)
 			w.attacks[x.Start.GetJobId()] = make(chan struct{}, 1)
 			go func() {
@@ -121,7 +122,7 @@ func (w *Worker) Loop(streamMutex *sync.Mutex, stream Worker_CoordinateClient, w
 				timeMutex.Unlock()
 				wg.Done()
 			}()
-		case *Message_Stop:
+		case *pb.Message_Stop:
 			w.handleMessageStop(x.Stop)
 		default:
 		}
