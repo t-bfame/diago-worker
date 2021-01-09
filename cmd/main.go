@@ -15,10 +15,13 @@ import (
 
 func register(stream worker.Worker_CoordinateClient) {
 
+	cap, _ := strconv.ParseUint(os.Getenv("DIAGO_WORKER_GROUP_INSTANCE_CAPACITY"), 10, 64)
+
 	msgRegister := &worker.Message{Payload: &worker.Message_Register{
 		Register: &worker.Register{
-			Group:    os.Getenv("DIAGO_WORKER_GROUP"),
-			Instance: os.Getenv("DIAGO_WORKER_GROUP_INSTANCE"),
+			Group:     os.Getenv("DIAGO_WORKER_GROUP"),
+			Instance:  os.Getenv("DIAGO_WORKER_GROUP_INSTANCE"),
+			Frequency: cap,
 		},
 	}}
 	if err := stream.Send(msgRegister); err != nil {
