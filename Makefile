@@ -1,3 +1,5 @@
+mkip = $(shell minikube ip)
+
 proto:
 	@ if ! which protoc > /dev/null; then \
 		echo "error: protoc not installed" >&2; \
@@ -21,7 +23,7 @@ build:
 	docker build -f build/Dockerfile -t diago-worker .
 
 run:
-	@ go run main
+	DIAGO_WORKER_GROUP_INSTANCE_CAPACITY=40 DIAGO_WORKER_GROUP='test-worker-local' DIAGO_WORKER_GROUP_INSTANCE='random' DIAGO_LEADER_HOST=${mkip} DIAGO_LEADER_PORT='30018' ALLOWED_INACTIVITY_PERIOD_SECONDS=300 go run cmd/main.go
 
 local:
 	go build cmd/main.go

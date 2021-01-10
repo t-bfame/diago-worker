@@ -15,11 +15,13 @@ import (
 )
 
 func register(stream pb.Worker_CoordinateClient) {
+	cap, _ := strconv.ParseUint(os.Getenv("DIAGO_WORKER_GROUP_INSTANCE_CAPACITY"), 10, 64)
 
 	msgRegister := &pb.Message{Payload: &pb.Message_Register{
 		Register: &pb.Register{
-			Group:    os.Getenv("DIAGO_WORKER_GROUP"),
-			Instance: os.Getenv("DIAGO_WORKER_GROUP_INSTANCE"),
+			Group:     os.Getenv("DIAGO_WORKER_GROUP"),
+			Instance:  os.Getenv("DIAGO_WORKER_GROUP_INSTANCE"),
+			Frequency: cap,
 		},
 	}}
 	if err := stream.Send(msgRegister); err != nil {
@@ -54,7 +56,7 @@ func main() {
 	lastProcessedTime := time.Now()
 	timeMutex := &sync.Mutex{}
 	streamMutex := &sync.Mutex{}
-	gracePeriod, err := strconv.ParseFloat(os.Getenv("TERMINATION_GRACE_PERIOD_SECONDS"), 32)
+	gracePeriod, err := strconv.ParseFloat(os.Getenv("ALLOWED_INACTIVITY_PERIOD_SECONDS"), 32)
 
 	// TODO: do i have to do graceful shutdown or can i just kill the program?
 	go func() {
