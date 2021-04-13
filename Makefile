@@ -1,4 +1,13 @@
-mkip = $(shell minikube ip)
+BRANCH := $(shell git branch --show-current)
+
+docker:
+	docker build -t tbfame/diago-worker:${BRANCH} .
+
+push:
+	docker push tbfame/diago-worker:${BRANCH}
+
+test:
+	go test -v -coverprofile=coverage.out ./...
 
 proto:
 	@ if ! which protoc > /dev/null; then \
