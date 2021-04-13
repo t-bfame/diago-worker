@@ -1,3 +1,4 @@
+// Package pkg implements functions for executing load tests
 package pkg
 
 import (
@@ -25,7 +26,8 @@ func NewWorker() *Worker {
 	return w
 }
 
-func (w *Worker) metricsFromVegetaResult(jobID string, res *vegeta.Result) *pb.Metrics {
+// MetricsFromVegetaResult converts a Vegeta result into a Metrics protobuf
+func (w *Worker) MetricsFromVegetaResult(jobID string, res *vegeta.Result) *pb.Metrics {
 	timestampProto, err := pytypes.TimestampProto(res.Timestamp)
 	if err != nil {
 		log.Fatal(err)
@@ -42,7 +44,11 @@ func (w *Worker) metricsFromVegetaResult(jobID string, res *vegeta.Result) *pb.M
 	return metrics
 }
 
-func (w *Worker) handleMessageStart(stream pb.Worker_CoordinateClient, msgRegister *pb.Start, mutex *sync.Mutex) {
+// HandleMessageStart is the core function for executing a load test.
+// It is called upon receiving a Start protobuf message from the leader.
+// It leverages Vegeta and sends slices of metrics to the leader via stream.
+// The mutex is used to enforce mutual exclusion for the stream.
+func (w *Worker) HandleMessageStart(stream pb.Worker_CoordinateClient, msgRegister *pb.Start, mutex *sync.Mutex) {
 	jobID := msgRegister.JobId
 
 	fmt.Printf("Starting vegeta attack for job: %v\n", jobID)
@@ -72,11 +78,11 @@ Loop:
 			mutex.Lock()
 			stream.Send(&pb.Message{
 				Payload: &pb.Message_Metrics{
-					Metrics: w.metricsFromVegetaResult(jobID, res),
+					Metrics: w.MetricsFromVegetaResult(jobID, res),
 				},
 			})
 			mutex.Unlock()
-			fmt.Printf("latency: %v\n", res.Latency)
+			// fmt.Printf("latency: %v\n", res.Latency)
 		}
 	}
 	mutex.Lock()
@@ -90,7 +96,9 @@ Loop:
 	fmt.Printf("Worker finished workload for job %v\n", jobID)
 }
 
-func (w *Worker) handleMessageStop(msgStop *pb.Stop) {
+// HandleMessageStop is called upon receiving a Stop protobuf message from
+// the leader. It sends a signal via a channel to stop the executing goroutine.
+func (w *Worker) HandleMessageStop(msgStop *pb.Stop) {
 	fmt.Printf("Attempting to stop job with id %v\n", msgStop.GetJobId())
 	channel, ok := w.attacks[msgStop.GetJobId()]
 	if !ok {
@@ -100,7 +108,8 @@ func (w *Worker) handleMessageStop(msgStop *pb.Stop) {
 	channel <- struct{}{}
 }
 
-// Loop is the main event loop
+// Loop is the main event loop of the worker. The worker polls for messages from
+// the gRPC stream indefinitely, and processes each message.
 func (w *Worker) Loop(streamMutex *sync.Mutex, stream pb.Worker_CoordinateClient, wg *sync.WaitGroup, timeMutex *sync.Mutex, lastProcessedTime *time.Time) {
 	for {
 		msg, err := stream.Recv()
@@ -116,14 +125,14 @@ func (w *Worker) Loop(streamMutex *sync.Mutex, stream pb.Worker_CoordinateClient
 			wg.Add(1)
 			w.attacks[x.Start.GetJobId()] = make(chan struct{}, 1)
 			go func() {
-				w.handleMessageStart(stream, x.Start, streamMutex)
+				w.HandleMessageStart(stream, x.Start, streamMutex)
 				timeMutex.Lock()
 				*lastProcessedTime = time.Now()
 				timeMutex.Unlock()
 				wg.Done()
 			}()
 		case *pb.Message_Stop:
-			w.handleMessageStop(x.Stop)
+			w.HandleMessageStop(x.Stop)
 		default:
 		}
 	}
