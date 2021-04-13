@@ -7,7 +7,7 @@ import (
 	"net"
 	"time"
 
-	worker "github.com/t-bfame/diago-worker/internal"
+	worker "github.com/t-bfame/diago-worker/pkg"
 	"google.golang.org/grpc"
 )
 

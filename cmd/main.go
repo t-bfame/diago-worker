@@ -1,3 +1,9 @@
+// Package main is the entrypoint of the Diago worker process
+// It performs the following functions:
+// 1. Initializes the gRPC stub and connects to the leader, establishing a gRPC stream
+// 2. Registers the worker with the leader
+// 3. Starts a goroutine to check if a graceful shutdown should be done after a period of inactivity
+// 4. Starts the main worker event loop
 package main
 
 import (
@@ -9,30 +15,42 @@ import (
 	"sync"
 	"time"
 
-	worker "github.com/t-bfame/diago-worker/internal"
+	worker "github.com/t-bfame/diago-worker/pkg"
 	pb "github.com/t-bfame/diago-worker/proto-gen/worker"
 	"google.golang.org/grpc"
 )
 
+func createRegisterMessage(group string, instance string, frequency uint64) *pb.Message {
+	return &pb.Message{Payload: &pb.Message_Register{
+		Register: &pb.Register{
+			Group:     group,
+			Instance:  instance,
+			Frequency: frequency,
+		},
+	}}
+}
+
 func register(stream pb.Worker_CoordinateClient) {
 	cap, _ := strconv.ParseUint(os.Getenv("DIAGO_WORKER_GROUP_INSTANCE_CAPACITY"), 10, 64)
 
-	msgRegister := &pb.Message{Payload: &pb.Message_Register{
-		Register: &pb.Register{
-			Group:     os.Getenv("DIAGO_WORKER_GROUP"),
-			Instance:  os.Getenv("DIAGO_WORKER_GROUP_INSTANCE"),
-			Frequency: cap,
-		},
-	}}
+	msgRegister := createRegisterMessage(
+		os.Getenv("DIAGO_WORKER_GROUP"),
+		os.Getenv("DIAGO_WORKER_GROUP_INSTANCE"),
+		cap,
+	)
 	if err := stream.Send(msgRegister); err != nil {
 		log.Fatalf("Failed to send a register message: %v", err)
 	}
 }
 
+func getAddress(host string, port string) string {
+	return host + ":" + port;
+}
+
 func main() {
 	log.Println("Starting worker program")
 
-	address := os.Getenv("DIAGO_LEADER_HOST") + ":" + os.Getenv("DIAGO_LEADER_PORT")
+	address := getAddress(os.Getenv("DIAGO_LEADER_HOST"), os.Getenv("DIAGO_LEADER_PORT"))
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
@@ -51,6 +69,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to setup gRPC stream: %v", err)
 	}
+
+	log.Println("Connected to leader")
 
 	wg := &sync.WaitGroup{}
 	lastProcessedTime := time.Now()
