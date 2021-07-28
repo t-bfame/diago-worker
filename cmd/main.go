@@ -44,13 +44,21 @@ func register(stream pb.Worker_CoordinateClient) {
 }
 
 func getAddress(host string, port string) string {
-	return host + ":" + port;
+	return host + ":" + port
 }
 
 func main() {
-	log.Println("Starting worker program")
+	log.Println("Starting worker")
 
-	address := getAddress(os.Getenv("DIAGO_LEADER_HOST"), os.Getenv("DIAGO_LEADER_PORT"))
+	leader_host := os.Getenv("DIAGO_LEADER_HOST")
+	leader_port := os.Getenv("DIAGO_LEADER_PORT")
+	if len(leader_host) == 0 || len(leader_port) == 0 {
+		log.Fatalf("Environment variables DIAGO_LEADER_HOST, DIAGO_LEADER_PORT not found")
+		return
+	}
+
+	address := getAddress(leader_host, leader_port)
+	log.Println("Attempting to connect to leader at", address)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
@@ -76,7 +84,7 @@ func main() {
 	lastProcessedTime := time.Now()
 	timeMutex := &sync.Mutex{}
 	streamMutex := &sync.Mutex{}
-	gracePeriod, err := strconv.ParseFloat(os.Getenv("ALLOWED_INACTIVITY_PERIOD_SECONDS"), 32)
+	gracePeriod, _ := strconv.ParseFloat(os.Getenv("ALLOWED_INACTIVITY_PERIOD_SECONDS"), 32)
 
 	// TODO: do i have to do graceful shutdown or can i just kill the program?
 	go func() {

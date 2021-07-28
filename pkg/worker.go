@@ -62,6 +62,7 @@ func (w *Worker) HandleMessageStart(stream pb.Worker_CoordinateClient, msgRegist
 	targeter := vegeta.NewStaticTargeter(vegeta.Target{
 		Method: httpRequest.GetMethod(),
 		URL:    httpRequest.GetUrl(),
+		Body:   []byte(httpRequest.GetBody()),
 	})
 	attacker := vegeta.NewAttacker()
 
