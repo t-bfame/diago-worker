@@ -3,6 +3,7 @@ package pkg
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/t-bfame/diago-worker/pkg/model"
@@ -10,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
+	"go.mongodb.org/mongo-driver/x/bsonx"
 )
 
 var (
@@ -20,6 +22,7 @@ var (
 const (
 	dbName                 = "diago-worker"
 	responseDataCollection = "responsedata"
+	TTL                    = 300
 )
 
 func ConnectToDB(uri string) error {
@@ -39,9 +42,14 @@ func ConnectToDB(uri string) error {
 	MongoClient = client
 	ResponseDataColl = MongoClient.Database(dbName).Collection(responseDataCollection)
 
-	// index := mongo.IndexModel{}
-	// index.Keys = &bsonx.Doc{{Key: "created_at", Value: bsonx.Int32(1)}}
-	// ResponseDataColl.Indexes().CreateOne(context.Background(), index, options.Index().SetExpireAfterSeconds(60))
+	index := mongo.IndexModel{
+		Keys:    bsonx.Doc{{Key: "created_at", Value: bsonx.Int32(1)}},
+		Options: options.Index().SetExpireAfterSeconds(TTL),
+	}
+	_, err = ResponseDataColl.Indexes().CreateOne(context.Background(), index)
+	if err != nil {
+		log.Printf("Index error: %s", err.Error())
+	}
 	return nil
 }
 
