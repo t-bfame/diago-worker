@@ -2,13 +2,16 @@
 package pkg
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"sync"
 	"time"
 
 	pytypes "github.com/golang/protobuf/ptypes"
+	"github.com/t-bfame/diago-worker/pkg/model"
 	pb "github.com/t-bfame/diago-worker/proto-gen/worker"
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
@@ -49,7 +52,9 @@ func (w *Worker) MetricsFromVegetaResult(jobID string, res *vegeta.Result) *pb.M
 // It leverages Vegeta and sends slices of metrics to the leader via stream.
 // The mutex is used to enforce mutual exclusion for the stream.
 func (w *Worker) HandleMessageStart(stream pb.Worker_CoordinateClient, msgRegister *pb.Start, mutex *sync.Mutex) {
-	jobID := msgRegister.JobId
+	jobID := msgRegister.GetJobId()
+
+	period := msgRegister.GetPersistResponseSamplingRate().GetPeriod()
 
 	fmt.Printf("Starting vegeta attack for job: %v\n", jobID)
 
@@ -64,6 +69,7 @@ func (w *Worker) HandleMessageStart(stream pb.Worker_CoordinateClient, msgRegist
 		URL:    httpRequest.GetUrl(),
 		Body:   []byte(httpRequest.GetBody()),
 	})
+	log.Printf("url: %s", httpRequest.GetUrl())
 	attacker := vegeta.NewAttacker()
 
 	// TODO: potentially consider batching results to reduce network usage as this is definitely a bottleneck
@@ -77,6 +83,17 @@ Loop:
 			break Loop
 		default:
 			mutex.Lock()
+			log.Printf("Vegeta results: %s - %d - %s - %d - %s -", res.Method, res.Latency, res.Error, res.Code, res.Body)
+			if period > 0 && rand.Intn(int(period)) == 0 {
+				respData := model.ResponseData{
+					CreatedAt:      time.Now(),
+					TestID:         msgRegister.GetTestId(),
+					TestInstanceID: msgRegister.GetTestInstanceId(),
+					JobID:          jobID,
+					Response:       fmt.Sprintf("%+q", res.Body),
+				}
+				CreateResponseData(context.Background(), &respData)
+			}
 			stream.Send(&pb.Message{
 				Payload: &pb.Message_Metrics{
 					Metrics: w.MetricsFromVegetaResult(jobID, res),
@@ -113,10 +130,12 @@ func (w *Worker) HandleMessageStop(msgStop *pb.Stop) {
 // the gRPC stream indefinitely, and processes each message.
 func (w *Worker) Loop(streamMutex *sync.Mutex, stream pb.Worker_CoordinateClient, wg *sync.WaitGroup, timeMutex *sync.Mutex, lastProcessedTime *time.Time) {
 	for {
+		log.Println("message received")
 		msg, err := stream.Recv()
 		if err == io.EOF {
 			return
 		}
+		log.Printf("message is %s\n", msg)
 		if err != nil {
 			log.Fatalf("Failed to receive a message: %v", err)
 		}
