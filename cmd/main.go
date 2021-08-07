@@ -48,18 +48,16 @@ func getAddress(host string, port string) string {
 }
 
 func main() {
+	worker.ConnectToDB("mongodb://localhost:10320")
 	log.Println("Starting worker")
-
 	leader_host := os.Getenv("DIAGO_LEADER_HOST")
 	leader_port := os.Getenv("DIAGO_LEADER_PORT")
 	if len(leader_host) == 0 || len(leader_port) == 0 {
 		log.Fatalf("Environment variables DIAGO_LEADER_HOST, DIAGO_LEADER_PORT not found")
 		return
 	}
-
 	address := getAddress(leader_host, leader_port)
 	log.Println("Attempting to connect to leader at", address)
-
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
@@ -94,7 +92,7 @@ func main() {
 			timeMutex.Lock()
 			diff := time.Now().Sub(lastProcessedTime)
 			timeMutex.Unlock()
-			if diff.Seconds() > gracePeriod {
+			if diff.Seconds() > gracePeriod && gracePeriod > 0 {
 				fmt.Printf("It's been more than %v seconds\n", gracePeriod)
 				streamMutex.Lock()
 				// TODO: this is super flaky, sometimes it doesn't trigger an io.EOF on the server side
