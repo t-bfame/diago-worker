@@ -31,14 +31,11 @@ func createRegisterMessage(group string, instance string, frequency uint64) *pb.
 }
 
 func register(stream pb.Worker_CoordinateClient) {
-	//cap, _ := strconv.ParseUint(os.Getenv("DIAGO_WORKER_GROUP_INSTANCE_CAPACITY"), 10, 64)
-	cap := uint64(1000000)
+	cap, _ := strconv.ParseUint(os.Getenv("DIAGO_WORKER_GROUP_INSTANCE_CAPACITY"), 10, 64)
 
 	msgRegister := createRegisterMessage(
-		// os.Getenv("DIAGO_WORKER_GROUP"),
-		// os.Getenv("DIAGO_WORKER_GROUP_INSTANCE"),
-		"myworkerv2",
-		"myworkerv2-1",
+		os.Getenv("DIAGO_WORKER_GROUP"),
+		os.Getenv("DIAGO_WORKER_GROUP_INSTANCE"),
 		cap,
 	)
 	if err := stream.Send(msgRegister); err != nil {
@@ -53,17 +50,14 @@ func getAddress(host string, port string) string {
 func main() {
 	worker.ConnectToDB("mongodb://localhost:10320")
 	log.Println("Starting worker")
-	leader_host := "localhost"
-	leader_port := "10314"
-	// leader_host := os.Getenv("DIAGO_LEADER_HOST")
-	// leader_port := os.Getenv("DIAGO_LEADER_PORT")
+	leader_host := os.Getenv("DIAGO_LEADER_HOST")
+	leader_port := os.Getenv("DIAGO_LEADER_PORT")
 	if len(leader_host) == 0 || len(leader_port) == 0 {
 		log.Fatalf("Environment variables DIAGO_LEADER_HOST, DIAGO_LEADER_PORT not found")
 		return
 	}
 	address := getAddress(leader_host, leader_port)
 	log.Println("Attempting to connect to leader at", address)
-	log.Println(address)
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {

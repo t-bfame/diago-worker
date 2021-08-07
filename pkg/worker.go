@@ -69,7 +69,6 @@ func (w *Worker) HandleMessageStart(stream pb.Worker_CoordinateClient, msgRegist
 		URL:    httpRequest.GetUrl(),
 		Body:   []byte(httpRequest.GetBody()),
 	})
-	log.Printf("url: %s", httpRequest.GetUrl())
 	attacker := vegeta.NewAttacker()
 
 	// TODO: potentially consider batching results to reduce network usage as this is definitely a bottleneck
@@ -83,7 +82,6 @@ Loop:
 			break Loop
 		default:
 			mutex.Lock()
-			log.Printf("Vegeta results: %s - %d - %s - %d - %s -", res.Method, res.Latency, res.Error, res.Code, res.Body)
 			if period > 0 && rand.Intn(int(period)) == 0 {
 				respData := model.ResponseData{
 					CreatedAt:      time.Now(),
@@ -130,12 +128,10 @@ func (w *Worker) HandleMessageStop(msgStop *pb.Stop) {
 // the gRPC stream indefinitely, and processes each message.
 func (w *Worker) Loop(streamMutex *sync.Mutex, stream pb.Worker_CoordinateClient, wg *sync.WaitGroup, timeMutex *sync.Mutex, lastProcessedTime *time.Time) {
 	for {
-		log.Println("message received")
 		msg, err := stream.Recv()
 		if err == io.EOF {
 			return
 		}
-		log.Printf("message is %s\n", msg)
 		if err != nil {
 			log.Fatalf("Failed to receive a message: %v", err)
 		}
