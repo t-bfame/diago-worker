@@ -69,7 +69,6 @@ func (w *Worker) HandleMessageStart(stream pb.Worker_CoordinateClient, msgRegist
 		Body:   []byte(httpRequest.GetBody()),
 	})
 	attacker := vegeta.NewAttacker()
-	fmt.Printf("Test id %s Test instance id %s Period %d \n", msgRegister.GetTestId(), msgRegister.GetTestInstanceId(), period)
 
 	// TODO: potentially consider batching results to reduce network usage as this is definitely a bottleneck
 Loop:
@@ -82,9 +81,7 @@ Loop:
 			break Loop
 		default:
 			mutex.Lock()
-			randInt := rand.Intn(int(period))
-			fmt.Printf("randInt %d", randInt)
-			if period > 0 && randInt == 0 {
+			if period > 0 && rand.Intn(int(period)) == 0 {
 				respData := model.ResponseData{
 					CreatedAt:      time.Now(),
 					TestID:         msgRegister.GetTestId(),

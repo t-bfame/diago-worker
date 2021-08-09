@@ -90,8 +90,7 @@ func main() {
 	lastProcessedTime := time.Now()
 	timeMutex := &sync.Mutex{}
 	streamMutex := &sync.Mutex{}
-	// gracePeriod, _ := strconv.ParseFloat(os.Getenv("ALLOWED_INACTIVITY_PERIOD_SECONDS"), 32)
-	gracePeriod := float64(60)
+	gracePeriod, _ := strconv.ParseFloat(os.Getenv("ALLOWED_INACTIVITY_PERIOD_SECONDS"), 32)
 
 	// TODO: do i have to do graceful shutdown or can i just kill the program?
 	go func() {
