@@ -48,18 +48,25 @@ func getAddress(host string, port string) string {
 }
 
 func main() {
-	worker.ConnectToDB("mongodb://localhost:10320")
-	log.Println("Starting worker")
+	mongo_host := os.Getenv("MONGO_DB_HOST")
+	mongo_port := os.Getenv("MONGO_DB_PORT")
+
 	leader_host := os.Getenv("DIAGO_LEADER_HOST")
 	leader_port := os.Getenv("DIAGO_LEADER_PORT")
-	if len(leader_host) == 0 || len(leader_port) == 0 {
-		log.Fatalf("Environment variables DIAGO_LEADER_HOST, DIAGO_LEADER_PORT not found")
+
+	if len(mongo_host) == 0 || len(mongo_port) == 0 || len(leader_host) == 0 || len(leader_port) == 0 {
+		log.Fatalf("Environment variables MONGO_DB_HOST, MONGO_DB_PORT, DIAGO_LEADER_HOST, DIAGO_LEADER_PORT not found")
 		return
 	}
-	address := getAddress(leader_host, leader_port)
-	log.Println("Attempting to connect to leader at", address)
+
+	mongodb_addr := getAddress("mongodb://"+mongo_host, mongo_port)
+	log.Println("Attempting to connect to mongo at " + mongodb_addr)
+	worker.ConnectToDB(mongodb_addr)
+
+	leader_addr := getAddress(leader_host, leader_port)
+	log.Println("Attempting to connect to leader at", leader_addr)
 	// Set up a connection to the server.
-	conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
+	conn, err := grpc.Dial(leader_addr, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		log.Fatalf("Did not connect to server: %v", err)
 	}

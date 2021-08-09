@@ -53,7 +53,6 @@ func (w *Worker) MetricsFromVegetaResult(jobID string, res *vegeta.Result) *pb.M
 // The mutex is used to enforce mutual exclusion for the stream.
 func (w *Worker) HandleMessageStart(stream pb.Worker_CoordinateClient, msgRegister *pb.Start, mutex *sync.Mutex) {
 	jobID := msgRegister.GetJobId()
-
 	period := msgRegister.GetPersistResponseSamplingRate().GetPeriod()
 
 	fmt.Printf("Starting vegeta attack for job: %v\n", jobID)

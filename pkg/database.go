@@ -22,7 +22,7 @@ var (
 const (
 	dbName                 = "diago-worker"
 	responseDataCollection = "responsedata"
-	TTL                    = 300
+	TTLseconds             = 10 * 24 * 60 * 60
 )
 
 func ConnectToDB(uri string) error {
@@ -44,7 +44,7 @@ func ConnectToDB(uri string) error {
 
 	index := mongo.IndexModel{
 		Keys:    bsonx.Doc{{Key: "created_at", Value: bsonx.Int32(1)}},
-		Options: options.Index().SetExpireAfterSeconds(TTL),
+		Options: options.Index().SetExpireAfterSeconds(TTLseconds),
 	}
 	_, err = ResponseDataColl.Indexes().CreateOne(context.Background(), index)
 	if err != nil {
