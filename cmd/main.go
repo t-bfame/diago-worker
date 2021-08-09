@@ -33,7 +33,6 @@ func createRegisterMessage(group string, instance string, frequency uint64) *pb.
 func register(stream pb.Worker_CoordinateClient) {
 	cap, _ := strconv.ParseUint(os.Getenv("DIAGO_WORKER_GROUP_INSTANCE_CAPACITY"), 10, 64)
 
-	log.Printf("group %s instance %s cap %d", os.Getenv("DIAGO_WORKER_GROUP"), os.Getenv("DIAGO_WORKER_GROUP_INSTANCE"), cap)
 	msgRegister := createRegisterMessage(
 		os.Getenv("DIAGO_WORKER_GROUP"),
 		os.Getenv("DIAGO_WORKER_GROUP_INSTANCE"),
