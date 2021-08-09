@@ -97,7 +97,6 @@ Loop:
 				},
 			})
 			mutex.Unlock()
-			// fmt.Printf("latency: %v\n", res.Latency)
 		}
 	}
 	mutex.Lock()
