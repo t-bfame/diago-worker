@@ -22,7 +22,7 @@ var (
 const (
 	dbName                 = "diago-worker"
 	responseDataCollection = "responsedata"
-	TTL                    = 300
+	TTL                    = 10 * 24 * 3600
 )
 
 func ConnectToDB(uri string) error {
