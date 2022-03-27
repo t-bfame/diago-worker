@@ -17,10 +17,11 @@ import (
 
 	worker "github.com/t-bfame/diago-worker/pkg"
 	pb "github.com/t-bfame/diago-worker/proto-gen/worker"
+	aggpb "github.com/t-bfame/diago-worker/proto-gen/aggregator"
 	"google.golang.org/grpc"
 )
 
-func createRegisterMessage(group string, instance string, frequency uint64) *pb.Message {
+func createLeaderRegisterMessage(group string, instance string, frequency uint64) *pb.Message {
 	return &pb.Message{Payload: &pb.Message_Register{
 		Register: &pb.Register{
 			Group:     group,
@@ -30,10 +31,10 @@ func createRegisterMessage(group string, instance string, frequency uint64) *pb.
 	}}
 }
 
-func register(stream pb.Worker_CoordinateClient) {
+func leaderRegister(stream pb.Worker_CoordinateClient) {
 	cap, _ := strconv.ParseUint(os.Getenv("DIAGO_WORKER_GROUP_INSTANCE_CAPACITY"), 10, 64)
 
-	msgRegister := createRegisterMessage(
+	msgRegister := createLeaderRegisterMessage(
 		os.Getenv("DIAGO_WORKER_GROUP"),
 		os.Getenv("DIAGO_WORKER_GROUP_INSTANCE"),
 		cap,
@@ -47,13 +48,38 @@ func getAddress(host string, port string) string {
 	return host + ":" + port;
 }
 
+func connectToAggregator(address string) (stream aggpb.Aggregator_CoordinateClient) {
+	// Set up a connection to the 
+	conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
+	if err != nil {
+		log.Fatalf("Did not connect to server: %v", err)
+	}
+	defer conn.Close()
+
+	client := aggpb.NewAggregatorClient(conn)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Contact server to establish grpc stream
+	stream, err = client.Coordinate(ctx)
+	if err != nil {
+		log.Fatalf("Failed to setup gRPC stream: %v", err)
+	}
+
+	log.Println("Connected to leader")
+
+	return stream
+}
+
 func main() {
 	log.Println("Starting worker program")
 
-	address := getAddress(os.Getenv("DIAGO_LEADER_HOST"), os.Getenv("DIAGO_LEADER_PORT"))
+	leaderAddress := getAddress(os.Getenv("DIAGO_LEADER_HOST"), os.Getenv("DIAGO_LEADER_PORT"))
+	aggregatorAddress := getAddress(os.Getenv("DIAGO_AGGREGATOR_SERVICE"), os.Getenv("DIAGO_AGGREGATOR_PORT"))
 
-	// Set up a connection to the server.
-	conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
+	// Set up a connection to the leader erver.
+	conn, err := grpc.Dial(leaderAddress, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		log.Fatalf("Did not connect to server: %v", err)
 	}
@@ -65,12 +91,14 @@ func main() {
 	defer cancel()
 
 	// Contact server to establish grpc stream
-	stream, err := client.Coordinate(ctx)
+	leaderStream, err := client.Coordinate(ctx)
 	if err != nil {
 		log.Fatalf("Failed to setup gRPC stream: %v", err)
 	}
 
 	log.Println("Connected to leader")
+
+	aggregatorStream := connectToAggregator(aggregatorAddress)
 
 	wg := &sync.WaitGroup{}
 	lastProcessedTime := time.Now()
@@ -91,7 +119,7 @@ func main() {
 				streamMutex.Lock()
 				// TODO: this is super flaky, sometimes it doesn't trigger an io.EOF on the server side
 				// maybe the server actually needs to be currently blocked on Recv() in order to get the io.eof?
-				stream.CloseSend()
+				leaderStream.CloseSend()
 				streamMutex.Unlock()
 				cancel()
 				return
@@ -100,7 +128,7 @@ func main() {
 		}
 	}()
 
-	register(stream)
+	leaderRegister(leaderStream)
 	w := worker.NewWorker()
-	w.Loop(streamMutex, stream, wg, timeMutex, &lastProcessedTime)
+	w.Loop(streamMutex, leaderStream, aggregatorStream, wg, timeMutex, &lastProcessedTime)
 }

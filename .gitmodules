@@ -1,3 +1,4 @@
 [submodule "diago-idl"]
 	path = diago-idl
 	url = git@github.com:t-bfame/diago-idl.git
+	branch = kyle/aggregator

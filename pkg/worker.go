@@ -10,6 +10,7 @@ import (
 
 	pytypes "github.com/golang/protobuf/ptypes"
 	pb "github.com/t-bfame/diago-worker/proto-gen/worker"
+	aggpb "github.com/t-bfame/diago-worker/proto-gen/aggregator"
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
@@ -27,19 +28,21 @@ func NewWorker() *Worker {
 }
 
 // MetricsFromVegetaResult converts a Vegeta result into a Metrics protobuf
-func (w *Worker) MetricsFromVegetaResult(jobID string, res *vegeta.Result) *pb.Metrics {
+func (w *Worker) MetricsFromVegetaResult(testID string, instanceID string, jobID string, res *vegeta.Result) *aggpb.Metrics {
 	timestampProto, err := pytypes.TimestampProto(res.Timestamp)
 	if err != nil {
 		log.Fatal(err)
 	}
-	metrics := &pb.Metrics{
-		JobId:     jobID,
-		Code:      uint32(res.Code),
-		BytesIn:   res.BytesIn,
-		BytesOut:  res.BytesOut,
-		Latency:   int64(res.Latency),
-		Error:     res.Error,
-		Timestamp: timestampProto,
+	metrics := &aggpb.Metrics{
+		TestId: 	testID,
+		InstanceId: instanceID,
+		JobId:		jobID,
+		Code:      	uint32(res.Code),
+		BytesIn:   	res.BytesIn,
+		BytesOut:  	res.BytesOut,
+		Latency:   	int64(res.Latency),
+		Error:     	res.Error,
+		Timestamp: 	timestampProto,
 	}
 	return metrics
 }
@@ -48,7 +51,9 @@ func (w *Worker) MetricsFromVegetaResult(jobID string, res *vegeta.Result) *pb.M
 // It is called upon receiving a Start protobuf message from the leader.
 // It leverages Vegeta and sends slices of metrics to the leader via stream.
 // The mutex is used to enforce mutual exclusion for the stream.
-func (w *Worker) HandleMessageStart(stream pb.Worker_CoordinateClient, msgRegister *pb.Start, mutex *sync.Mutex) {
+func (w *Worker) HandleMessageStart(stream pb.Worker_CoordinateClient, metricStream aggpb.Aggregator_CoordinateClient, msgRegister *pb.Start, mutex *sync.Mutex) {
+	testID := msgRegister.TestId
+	instanceID := msgRegister.TestInstanceId
 	jobID := msgRegister.JobId
 
 	fmt.Printf("Starting vegeta attack for job: %v\n", jobID)
@@ -75,16 +80,16 @@ Loop:
 			delete(w.attacks, jobID)
 			break Loop
 		default:
-			mutex.Lock()
-			stream.Send(&pb.Message{
-				Payload: &pb.Message_Metrics{
-					Metrics: w.MetricsFromVegetaResult(jobID, res),
+			metricStream.Send(&aggpb.Message{
+				Payload: &aggpb.Message_Metrics{
+					Metrics: w.MetricsFromVegetaResult(testID, instanceID, jobID, res),
 				},
 			})
-			mutex.Unlock()
 			// fmt.Printf("latency: %v\n", res.Latency)
 		}
 	}
+
+	// TODO: remove this? aggregator tells leader when job is finished
 	mutex.Lock()
 	stream.Send(&pb.Message{
 		Payload: &pb.Message_Finish{
@@ -92,6 +97,16 @@ Loop:
 		},
 	})
 	mutex.Unlock()
+
+	metricStream.Send(&aggpb.Message{
+		Payload: &aggpb.Message_Finish{
+			Finish: &aggpb.Finish{
+				TestId: testID,
+				InstanceId: instanceID,
+				JobId: jobID,
+			},
+		},
+	})
 
 	fmt.Printf("Worker finished workload for job %v\n", jobID)
 }
@@ -110,7 +125,7 @@ func (w *Worker) HandleMessageStop(msgStop *pb.Stop) {
 
 // Loop is the main event loop of the worker. The worker polls for messages from
 // the gRPC stream indefinitely, and processes each message.
-func (w *Worker) Loop(streamMutex *sync.Mutex, stream pb.Worker_CoordinateClient, wg *sync.WaitGroup, timeMutex *sync.Mutex, lastProcessedTime *time.Time) {
+func (w *Worker) Loop(streamMutex *sync.Mutex, stream pb.Worker_CoordinateClient, metricStream aggpb.Aggregator_CoordinateClient, wg *sync.WaitGroup, timeMutex *sync.Mutex, lastProcessedTime *time.Time) {
 	for {
 		msg, err := stream.Recv()
 		if err == io.EOF {
@@ -125,7 +140,7 @@ func (w *Worker) Loop(streamMutex *sync.Mutex, stream pb.Worker_CoordinateClient
 			wg.Add(1)
 			w.attacks[x.Start.GetJobId()] = make(chan struct{}, 1)
 			go func() {
-				w.HandleMessageStart(stream, x.Start, streamMutex)
+				w.HandleMessageStart(stream, metricStream, x.Start, streamMutex)
 				timeMutex.Lock()
 				*lastProcessedTime = time.Now()
 				timeMutex.Unlock()
