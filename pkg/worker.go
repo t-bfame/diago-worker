@@ -2,15 +2,18 @@
 package pkg
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"sync"
 	"time"
 
 	pytypes "github.com/golang/protobuf/ptypes"
-	pb "github.com/t-bfame/diago-worker/proto-gen/worker"
+	"github.com/t-bfame/diago-worker/pkg/model"
 	aggpb "github.com/t-bfame/diago-worker/proto-gen/aggregator"
+	pb "github.com/t-bfame/diago-worker/proto-gen/worker"
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
@@ -34,15 +37,15 @@ func (w *Worker) MetricsFromVegetaResult(testID string, instanceID string, jobID
 		log.Fatal(err)
 	}
 	metrics := &aggpb.Metrics{
-		TestId: 	testID,
+		TestId:     testID,
 		InstanceId: instanceID,
-		JobId:		jobID,
-		Code:      	uint32(res.Code),
-		BytesIn:   	res.BytesIn,
-		BytesOut:  	res.BytesOut,
-		Latency:   	int64(res.Latency),
-		Error:     	res.Error,
-		Timestamp: 	timestampProto,
+		JobId:      jobID,
+		Code:       uint32(res.Code),
+		BytesIn:    res.BytesIn,
+		BytesOut:   res.BytesOut,
+		Latency:    int64(res.Latency),
+		Error:      res.Error,
+		Timestamp:  timestampProto,
 	}
 	return metrics
 }
@@ -55,6 +58,7 @@ func (w *Worker) HandleMessageStart(stream pb.Worker_CoordinateClient, metricStr
 	testID := msgRegister.TestId
 	instanceID := msgRegister.TestInstanceId
 	jobID := msgRegister.JobId
+	period := msgRegister.GetPersistResponseSamplingRate().GetPeriod()
 
 	fmt.Printf("Starting vegeta attack for job: %v\n", jobID)
 
@@ -67,6 +71,7 @@ func (w *Worker) HandleMessageStart(stream pb.Worker_CoordinateClient, metricStr
 	targeter := vegeta.NewStaticTargeter(vegeta.Target{
 		Method: httpRequest.GetMethod(),
 		URL:    httpRequest.GetUrl(),
+		Body:   []byte(httpRequest.GetBody()),
 	})
 	attacker := vegeta.NewAttacker()
 
@@ -80,12 +85,24 @@ Loop:
 			delete(w.attacks, jobID)
 			break Loop
 		default:
+			mutex.Lock()
 			metricStream.Send(&aggpb.Message{
 				Payload: &aggpb.Message_Metrics{
 					Metrics: w.MetricsFromVegetaResult(testID, instanceID, jobID, res),
 				},
 			})
 			// fmt.Printf("latency: %v\n", res.Latency)
+			if period > 0 && rand.Intn(int(period)) == 0 {
+				respData := model.ResponseData{
+					CreatedAt:      time.Now(),
+					TestID:         msgRegister.GetTestId(),
+					TestInstanceID: msgRegister.GetTestInstanceId(),
+					JobID:          jobID,
+					Response:       fmt.Sprintf("%+q", res.Body),
+				}
+				CreateResponseData(context.Background(), &respData)
+			}
+			mutex.Unlock()
 		}
 	}
 
@@ -101,9 +118,9 @@ Loop:
 	metricStream.Send(&aggpb.Message{
 		Payload: &aggpb.Message_Finish{
 			Finish: &aggpb.Finish{
-				TestId: testID,
+				TestId:     testID,
 				InstanceId: instanceID,
-				JobId: jobID,
+				JobId:      jobID,
 			},
 		},
 	})

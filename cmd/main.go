@@ -16,8 +16,8 @@ import (
 	"time"
 
 	worker "github.com/t-bfame/diago-worker/pkg"
-	pb "github.com/t-bfame/diago-worker/proto-gen/worker"
 	aggpb "github.com/t-bfame/diago-worker/proto-gen/aggregator"
+	pb "github.com/t-bfame/diago-worker/proto-gen/worker"
 	"google.golang.org/grpc"
 )
 
@@ -45,11 +45,11 @@ func leaderRegister(stream pb.Worker_CoordinateClient) {
 }
 
 func getAddress(host string, port string) string {
-	return host + ":" + port;
+	return host + ":" + port
 }
 
 func connectToAggregator(address string) (stream aggpb.Aggregator_CoordinateClient) {
-	// Set up a connection to the 
+	// Set up a connection to the
 	conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		log.Fatalf("Did not connect to server: %v", err)
@@ -73,13 +73,27 @@ func connectToAggregator(address string) (stream aggpb.Aggregator_CoordinateClie
 }
 
 func main() {
-	log.Println("Starting worker program")
+	mongo_host := os.Getenv("MONGO_DB_HOST")
+	mongo_port := os.Getenv("MONGO_DB_PORT")
 
-	leaderAddress := getAddress(os.Getenv("DIAGO_LEADER_HOST"), os.Getenv("DIAGO_LEADER_PORT"))
 	aggregatorAddress := getAddress(os.Getenv("DIAGO_AGGREGATOR_SERVICE"), os.Getenv("DIAGO_AGGREGATOR_PORT"))
 
-	// Set up a connection to the leader erver.
-	conn, err := grpc.Dial(leaderAddress, grpc.WithInsecure(), grpc.WithBlock())
+	leader_host := os.Getenv("DIAGO_LEADER_HOST")
+	leader_port := os.Getenv("DIAGO_LEADER_PORT")
+
+	if len(mongo_host) == 0 || len(mongo_port) == 0 || len(leader_host) == 0 || len(leader_port) == 0 {
+		log.Fatalf("Environment variables MONGO_DB_HOST, MONGO_DB_PORT, DIAGO_LEADER_HOST, DIAGO_LEADER_PORT not found")
+		return
+	}
+
+	mongodb_addr := getAddress("mongodb://"+mongo_host, mongo_port)
+	log.Println("Attempting to connect to mongo at " + mongodb_addr)
+	worker.ConnectToDB(mongodb_addr)
+
+	leader_addr := getAddress(leader_host, leader_port)
+	log.Println("Attempting to connect to leader at", leader_addr)
+	// Set up a connection to the server.
+	conn, err := grpc.Dial(leader_addr, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		log.Fatalf("Did not connect to server: %v", err)
 	}
@@ -104,7 +118,7 @@ func main() {
 	lastProcessedTime := time.Now()
 	timeMutex := &sync.Mutex{}
 	streamMutex := &sync.Mutex{}
-	gracePeriod, err := strconv.ParseFloat(os.Getenv("ALLOWED_INACTIVITY_PERIOD_SECONDS"), 32)
+	gracePeriod, _ := strconv.ParseFloat(os.Getenv("ALLOWED_INACTIVITY_PERIOD_SECONDS"), 32)
 
 	// TODO: do i have to do graceful shutdown or can i just kill the program?
 	go func() {
@@ -114,7 +128,7 @@ func main() {
 			timeMutex.Lock()
 			diff := time.Now().Sub(lastProcessedTime)
 			timeMutex.Unlock()
-			if diff.Seconds() > gracePeriod {
+			if diff.Seconds() > gracePeriod && gracePeriod > 0 {
 				fmt.Printf("It's been more than %v seconds\n", gracePeriod)
 				streamMutex.Lock()
 				// TODO: this is super flaky, sometimes it doesn't trigger an io.EOF on the server side

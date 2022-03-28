@@ -256,6 +256,13 @@ func (m *HTTPRequest) GetBody() string {
 	return ""
 }
 
+func (x *HTTPRequest) GetBody() string {
+	if x != nil && x.Body != nil {
+		return *x.Body
+	}
+	return ""
+}
+
 type Start struct {
 	// Each job is split into multiple workloads, each workload with the same job id
 	JobId string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`

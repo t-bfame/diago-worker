@@ -23,7 +23,7 @@ proto:
 	protoc \
 		--go_out=Mgrpc/service_config/service_config.proto=/proto-gen/api:. \
 		--go-grpc_out=Mgrpc/service_config/service_config.proto=/proto-gen/api:. \
-		diago-idl/proto/worker.proto
+		idl/proto/worker.proto
 
 	protoc \
 		--go_out=Mgrpc/service_config/service_config.proto=/proto-gen/api:. \

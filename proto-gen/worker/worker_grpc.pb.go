@@ -133,5 +133,5 @@ var Worker_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "diago-idl/proto/worker.proto",
+	Metadata: "idl/proto/worker.proto",
 }
