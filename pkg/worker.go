@@ -48,7 +48,7 @@ func (w *Worker) GetMetricsProto(jobID string, metrics *Metrics) *pb.Metrics {
 
 	metricsProto := &pb.Metrics{
 		JobId:		jobID,
-		NMetrics:	metrics.Requests,
+		NMetrics:	metrics.N_Metrics,
 		Codes:      metrics.StatusCodes,
 		BytesIn:   	metrics.BytesIn,
 		BytesOut:  	metrics.BytesOut,

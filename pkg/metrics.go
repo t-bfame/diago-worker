@@ -33,7 +33,7 @@ type Metrics struct {
 	End time.Time `json:"end"`
 
 	// Requests is the total number of requests executed.
-	Requests uint64 `json:"requests"`
+	N_Metrics uint64 `json:"n_metrics"`
 
 	// StatusCodes is a histogram of the responses' status codes.
 	StatusCodes map[string]uint64 `json:"status_codes"`
@@ -61,7 +61,7 @@ func (m *Metrics) AddVegetaResult(jobID string, res *vegeta.Result) {
 		log.Fatal(err)
 	}
 
-	m.Requests ++
+	m.N_Metrics ++
 	m.StatusCodes[strconv.Itoa(int(res.Code))]++
 	m.BytesOut += res.BytesOut
 	m.BytesIn += res.BytesIn
