@@ -54,6 +54,12 @@ func main() {
 	leader_host := os.Getenv("DIAGO_LEADER_HOST")
 	leader_port := os.Getenv("DIAGO_LEADER_PORT")
 
+	metricFreq, err := strconv.Atoi(os.Getenv("REPORT_METRICS_FREQUENCY"))
+	if err != nil {
+		metricFreq = 5
+		log.Print("Invalid metric submit frequency. Defaulting to 5")
+	}
+
 	if len(mongo_host) == 0 || len(mongo_port) == 0 || len(leader_host) == 0 || len(leader_port) == 0 {
 		log.Fatalf("Environment variables MONGO_DB_HOST, MONGO_DB_PORT, DIAGO_LEADER_HOST, DIAGO_LEADER_PORT not found")
 		return
@@ -115,5 +121,5 @@ func main() {
 
 	register(stream)
 	w := worker.NewWorker()
-	w.Loop(streamMutex, stream, wg, timeMutex, &lastProcessedTime)
+	w.Loop(streamMutex, stream, wg, timeMutex, &lastProcessedTime, metricFreq)
 }
