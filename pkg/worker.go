@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	pytypes "github.com/golang/protobuf/ptypes"
+	ptypes "github.com/golang/protobuf/ptypes"
 	"github.com/t-bfame/diago-worker/pkg/model"
 	pb "github.com/t-bfame/diago-worker/proto-gen/worker"
 	vegeta "github.com/tsenart/vegeta/v12/lib"
@@ -29,29 +29,44 @@ func NewWorker() *Worker {
 	return w
 }
 
-// MetricsFromVegetaResult converts a Vegeta result into a Metrics protobuf
-func (w *Worker) MetricsFromVegetaResult(jobID string, res *vegeta.Result) *pb.Metrics {
-	timestampProto, err := pytypes.TimestampProto(res.Timestamp)
+// MetricsFromVegetaResult converts Metrics into a Metrics protobuf
+func (w *Worker) GetMetricsProto(jobID string, metrics *Metrics) *pb.Metrics {
+	earliestProto, err := ptypes.TimestampProto(metrics.Earliest)
 	if err != nil {
 		log.Fatal(err)
 	}
-	metrics := &pb.Metrics{
-		JobId:     jobID,
-		Code:      uint32(res.Code),
-		BytesIn:   res.BytesIn,
-		BytesOut:  res.BytesOut,
-		Latency:   int64(res.Latency),
-		Error:     res.Error,
-		Timestamp: timestampProto,
+
+	latestProto, err := ptypes.TimestampProto(metrics.Latest)
+	if err != nil {
+		log.Fatal(err)
 	}
-	return metrics
+
+	endProto, err := ptypes.TimestampProto(metrics.End)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	metricsProto := &pb.Metrics{
+		JobId:		jobID,
+		NMetrics:	metrics.Requests,
+		Codes:      metrics.StatusCodes,
+		BytesIn:   	metrics.BytesIn,
+		BytesOut:  	metrics.BytesOut,
+		Latencies:  metrics.Latencies,
+		Earliest:	earliestProto,
+		Latest: 	latestProto,
+		End:		endProto,
+		Errors:     metrics.Errors,
+	}
+
+	return metricsProto
 }
 
 // HandleMessageStart is the core function for executing a load test.
 // It is called upon receiving a Start protobuf message from the leader.
 // It leverages Vegeta and sends slices of metrics to the leader via stream.
 // The mutex is used to enforce mutual exclusion for the stream.
-func (w *Worker) HandleMessageStart(stream pb.Worker_CoordinateClient, msgRegister *pb.Start, mutex *sync.Mutex) {
+func (w *Worker) HandleMessageStart(stream pb.Worker_CoordinateClient, msgRegister *pb.Start, mutex *sync.Mutex, metricFreq int) {
 	jobID := msgRegister.GetJobId()
 	period := msgRegister.GetPersistResponseSamplingRate().GetPeriod()
 
@@ -69,6 +84,34 @@ func (w *Worker) HandleMessageStart(stream pb.Worker_CoordinateClient, msgRegist
 		Body:   []byte(httpRequest.GetBody()),
 	})
 	attacker := vegeta.NewAttacker()
+
+	// periodically send metrics
+	mAgg := NewMetrics()
+	stopMetricStream := make(chan bool)
+
+	go func() {
+		for range time.NewTicker(time.Duration(metricFreq) * time.Second).C {
+			mutex.Lock()
+			stream.Send(&pb.Message{
+				Payload: &pb.Message_Metrics{
+					Metrics: w.GetMetricsProto(jobID, mAgg),
+				},
+			})
+
+			// reset mAgg
+			mAgg = NewMetrics()
+
+			mutex.Unlock()
+			
+			// check if more metrics are expected
+			select {
+			case <- stopMetricStream:
+				return
+			default:
+				continue
+			}
+		}
+	}()
 
 	// TODO: potentially consider batching results to reduce network usage as this is definitely a bottleneck
 Loop:
@@ -91,11 +134,9 @@ Loop:
 				}
 				CreateResponseData(context.Background(), &respData)
 			}
-			stream.Send(&pb.Message{
-				Payload: &pb.Message_Metrics{
-					Metrics: w.MetricsFromVegetaResult(jobID, res),
-				},
-			})
+
+			mAgg.AddVegetaResult(jobID, res)
+
 			mutex.Unlock()
 		}
 	}
@@ -108,6 +149,7 @@ Loop:
 	mutex.Unlock()
 
 	fmt.Printf("Worker finished workload for job %v\n", jobID)
+	stopMetricStream <- true
 }
 
 // HandleMessageStop is called upon receiving a Stop protobuf message from
@@ -124,7 +166,7 @@ func (w *Worker) HandleMessageStop(msgStop *pb.Stop) {
 
 // Loop is the main event loop of the worker. The worker polls for messages from
 // the gRPC stream indefinitely, and processes each message.
-func (w *Worker) Loop(streamMutex *sync.Mutex, stream pb.Worker_CoordinateClient, wg *sync.WaitGroup, timeMutex *sync.Mutex, lastProcessedTime *time.Time) {
+func (w *Worker) Loop(streamMutex *sync.Mutex, stream pb.Worker_CoordinateClient, wg *sync.WaitGroup, timeMutex *sync.Mutex, lastProcessedTime *time.Time, metricFreq int) {
 	for {
 		msg, err := stream.Recv()
 		if err == io.EOF {
@@ -139,7 +181,7 @@ func (w *Worker) Loop(streamMutex *sync.Mutex, stream pb.Worker_CoordinateClient
 			wg.Add(1)
 			w.attacks[x.Start.GetJobId()] = make(chan struct{}, 1)
 			go func() {
-				w.HandleMessageStart(stream, x.Start, streamMutex)
+				w.HandleMessageStart(stream, x.Start, streamMutex, metricFreq)
 				timeMutex.Lock()
 				*lastProcessedTime = time.Now()
 				timeMutex.Unlock()
