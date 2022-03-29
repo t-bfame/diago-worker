@@ -47,16 +47,16 @@ func (w *Worker) GetMetricsProto(jobID string, metrics *Metrics) *pb.Metrics {
 	}
 
 	metricsProto := &pb.Metrics{
-		JobId:		jobID,
-		NMetrics:	metrics.N_Metrics,
-		Codes:      metrics.StatusCodes,
-		BytesIn:   	metrics.BytesIn,
-		BytesOut:  	metrics.BytesOut,
-		Latencies:  metrics.Latencies,
-		Earliest:	earliestProto,
-		Latest: 	latestProto,
-		End:		endProto,
-		Errors:     metrics.Errors,
+		JobId:     jobID,
+		NMetrics:  metrics.N_Metrics,
+		Codes:     metrics.StatusCodes,
+		BytesIn:   metrics.BytesIn,
+		BytesOut:  metrics.BytesOut,
+		Latencies: metrics.Latencies,
+		Earliest:  earliestProto,
+		Latest:    latestProto,
+		End:       endProto,
+		Errors:    metrics.Errors,
 	}
 
 	return metricsProto
@@ -102,10 +102,15 @@ func (w *Worker) HandleMessageStart(stream pb.Worker_CoordinateClient, msgRegist
 			mAgg = NewMetrics()
 
 			mutex.Unlock()
-			
+
 			// check if more metrics are expected
 			select {
-			case <- stopMetricStream:
+			case <-stopMetricStream:
+				stream.Send(&pb.Message{
+					Payload: &pb.Message_Metrics{
+						Metrics: w.GetMetricsProto(jobID, mAgg),
+					},
+				})
 				return
 			default:
 				continue
@@ -140,6 +145,7 @@ Loop:
 			mutex.Unlock()
 		}
 	}
+	stopMetricStream <- true
 	mutex.Lock()
 	stream.Send(&pb.Message{
 		Payload: &pb.Message_Finish{
@@ -149,7 +155,6 @@ Loop:
 	mutex.Unlock()
 
 	fmt.Printf("Worker finished workload for job %v\n", jobID)
-	stopMetricStream <- true
 }
 
 // HandleMessageStop is called upon receiving a Stop protobuf message from
