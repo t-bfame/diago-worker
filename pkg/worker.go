@@ -2,13 +2,16 @@
 package pkg
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"sync"
 	"time"
 
-	pytypes "github.com/golang/protobuf/ptypes"
+	ptypes "github.com/golang/protobuf/ptypes"
+	"github.com/t-bfame/diago-worker/pkg/model"
 	pb "github.com/t-bfame/diago-worker/proto-gen/worker"
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
@@ -26,30 +29,46 @@ func NewWorker() *Worker {
 	return w
 }
 
-// MetricsFromVegetaResult converts a Vegeta result into a Metrics protobuf
-func (w *Worker) MetricsFromVegetaResult(jobID string, res *vegeta.Result) *pb.Metrics {
-	timestampProto, err := pytypes.TimestampProto(res.Timestamp)
+// MetricsFromVegetaResult converts Metrics into a Metrics protobuf
+func (w *Worker) GetMetricsProto(jobID string, metrics *Metrics) *pb.Metrics {
+	earliestProto, err := ptypes.TimestampProto(metrics.Earliest)
 	if err != nil {
 		log.Fatal(err)
 	}
-	metrics := &pb.Metrics{
-		JobId:     jobID,
-		Code:      uint32(res.Code),
-		BytesIn:   res.BytesIn,
-		BytesOut:  res.BytesOut,
-		Latency:   int64(res.Latency),
-		Error:     res.Error,
-		Timestamp: timestampProto,
+
+	latestProto, err := ptypes.TimestampProto(metrics.Latest)
+	if err != nil {
+		log.Fatal(err)
 	}
-	return metrics
+
+	endProto, err := ptypes.TimestampProto(metrics.End)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	metricsProto := &pb.Metrics{
+		JobId:     jobID,
+		NMetrics:  metrics.N_Metrics,
+		Codes:     metrics.StatusCodes,
+		BytesIn:   metrics.BytesIn,
+		BytesOut:  metrics.BytesOut,
+		Latencies: metrics.Latencies,
+		Earliest:  earliestProto,
+		Latest:    latestProto,
+		End:       endProto,
+		Errors:    metrics.Errors,
+	}
+
+	return metricsProto
 }
 
 // HandleMessageStart is the core function for executing a load test.
 // It is called upon receiving a Start protobuf message from the leader.
 // It leverages Vegeta and sends slices of metrics to the leader via stream.
 // The mutex is used to enforce mutual exclusion for the stream.
-func (w *Worker) HandleMessageStart(stream pb.Worker_CoordinateClient, msgRegister *pb.Start, mutex *sync.Mutex) {
-	jobID := msgRegister.JobId
+func (w *Worker) HandleMessageStart(stream pb.Worker_CoordinateClient, msgRegister *pb.Start, mutex *sync.Mutex, metricFreq int) {
+	jobID := msgRegister.GetJobId()
+	period := msgRegister.GetPersistResponseSamplingRate().GetPeriod()
 
 	fmt.Printf("Starting vegeta attack for job: %v\n", jobID)
 
@@ -62,8 +81,42 @@ func (w *Worker) HandleMessageStart(stream pb.Worker_CoordinateClient, msgRegist
 	targeter := vegeta.NewStaticTargeter(vegeta.Target{
 		Method: httpRequest.GetMethod(),
 		URL:    httpRequest.GetUrl(),
+		Body:   []byte(httpRequest.GetBody()),
 	})
 	attacker := vegeta.NewAttacker()
+
+	// periodically send metrics
+	mAgg := NewMetrics()
+	stopMetricStream := make(chan bool)
+
+	go func() {
+		for range time.NewTicker(time.Duration(metricFreq) * time.Second).C {
+			mutex.Lock()
+			stream.Send(&pb.Message{
+				Payload: &pb.Message_Metrics{
+					Metrics: w.GetMetricsProto(jobID, mAgg),
+				},
+			})
+
+			// reset mAgg
+			mAgg = NewMetrics()
+
+			mutex.Unlock()
+
+			// check if more metrics are expected
+			select {
+			case <-stopMetricStream:
+				stream.Send(&pb.Message{
+					Payload: &pb.Message_Metrics{
+						Metrics: w.GetMetricsProto(jobID, mAgg),
+					},
+				})
+				return
+			default:
+				continue
+			}
+		}
+	}()
 
 	// TODO: potentially consider batching results to reduce network usage as this is definitely a bottleneck
 Loop:
@@ -76,15 +129,23 @@ Loop:
 			break Loop
 		default:
 			mutex.Lock()
-			stream.Send(&pb.Message{
-				Payload: &pb.Message_Metrics{
-					Metrics: w.MetricsFromVegetaResult(jobID, res),
-				},
-			})
+			if period > 0 && rand.Intn(int(period)) == 0 {
+				respData := model.ResponseData{
+					CreatedAt:      time.Now(),
+					TestID:         msgRegister.GetTestId(),
+					TestInstanceID: msgRegister.GetTestInstanceId(),
+					JobID:          jobID,
+					Response:       fmt.Sprintf("%+q", res.Body),
+				}
+				CreateResponseData(context.Background(), &respData)
+			}
+
+			mAgg.AddVegetaResult(jobID, res)
+
 			mutex.Unlock()
-			// fmt.Printf("latency: %v\n", res.Latency)
 		}
 	}
+	stopMetricStream <- true
 	mutex.Lock()
 	stream.Send(&pb.Message{
 		Payload: &pb.Message_Finish{
@@ -110,7 +171,7 @@ func (w *Worker) HandleMessageStop(msgStop *pb.Stop) {
 
 // Loop is the main event loop of the worker. The worker polls for messages from
 // the gRPC stream indefinitely, and processes each message.
-func (w *Worker) Loop(streamMutex *sync.Mutex, stream pb.Worker_CoordinateClient, wg *sync.WaitGroup, timeMutex *sync.Mutex, lastProcessedTime *time.Time) {
+func (w *Worker) Loop(streamMutex *sync.Mutex, stream pb.Worker_CoordinateClient, wg *sync.WaitGroup, timeMutex *sync.Mutex, lastProcessedTime *time.Time, metricFreq int) {
 	for {
 		msg, err := stream.Recv()
 		if err == io.EOF {
@@ -125,7 +186,7 @@ func (w *Worker) Loop(streamMutex *sync.Mutex, stream pb.Worker_CoordinateClient
 			wg.Add(1)
 			w.attacks[x.Start.GetJobId()] = make(chan struct{}, 1)
 			go func() {
-				w.HandleMessageStart(stream, x.Start, streamMutex)
+				w.HandleMessageStart(stream, x.Start, streamMutex, metricFreq)
 				timeMutex.Lock()
 				*lastProcessedTime = time.Now()
 				timeMutex.Unlock()
